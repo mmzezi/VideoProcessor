@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Processor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <h1 style="color:#CFFF04;">Video Processor </h1>
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" id="file-input" name="file">
+        <button type="submit">Upload</button>
+    </form>
+    <div id="message"></div>
+    <div id="process-options" style="display:none;">
+        <button id="reencode-button">Re-encode Video (x265)</button>
+        <button id="lower-res-button">Lower Resolution (480p)</button>
+        <button id="boost-audio-button">Boost Audio (5x)</button>
+    </div>
+    <script>
+        document.getElementById('upload-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData();
+            const fileInput = document.getElementById('file-input');
+            formData.append('file', fileInput.files[0]);
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (response.ok) {
+                const videoId = result.video_id;
+                document.getElementById('message').innerHTML = `<p>Upload successful! Video ID: ${videoId}</p>`;
+                document.getElementById('process-options').style.display = 'block';
+                setupProcessButtons(videoId);
+            } else {
+                document.getElementById('message').innerHTML = `<p>Error: ${result.error}</p>`;
+            }
+        });
+
+        function setupProcessButtons(videoId) {
+            document.getElementById('reencode-button').onclick = function() {
+                processVideo(videoId, 'libx265');
+            };
+            document.getElementById('lower-res-button').onclick = function() {
+                lowerResolution(videoId, '-2:480');
+            };
+            document.getElementById('boost-audio-button').onclick = function() {
+                boostAudio(videoId, '5.0');
+            };
+        }
+
+        async function processVideo(videoId, codec) {
+            const response = await fetch(`/process/${videoId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ codec: codec })
+            });
+            const result = await response.json();
+            if (response.ok) {
+                const downloadLink = `/download/${videoId}`;
+                document.getElementById('message').innerHTML += `<p>Processing complete! <a href="${downloadLink}">Download processed video</a></p>`;
+            } else {
+                document.getElementById('message').innerHTML += `<p>Error: ${result.error}</p>`;
+            }
+        }
+
+        async function lowerResolution(videoId, resolution) {
+            const response = await fetch(`/lower_resolution/${videoId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ resolution: resolution })
+            });
+            const result = await response.json();
+            if (response.ok) {
+                const downloadLink = `/download/${videoId}`;
+                document.getElementById('message').innerHTML += `<p>Resolution lowering complete! <a href="${downloadLink}">Download processed video</a></p>`;
+            } else {
+                document.getElementById('message').innerHTML += `<p>Error: ${result.error}</p>`;
+            }
+        }
+
+        async function boostAudio(videoId, volume) {
+            const response = await fetch(`/boost_audio/${videoId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ volume: volume })
+            });
+            const result = await response.json();
+            if (response.ok) {
+                const downloadLink = `/download/${videoId}`;
+                document.getElementById('message').innerHTML += `<p>Audio boosting complete! <a href="${downloadLink}">Download processed video</a></p>`;
+            } else {
+                document.getElementById('message').innerHTML += `<p>Error: ${result.error}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
