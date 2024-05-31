@@ -2,6 +2,9 @@
 
 Projekt pri predmetu NUKS. Enostaven Web frontend za FFMPEG, ki za delovanje uporablja Flask in SQLAlchemy. Omogoča kodiranje videa v X265, nižanje resolucije, odstranitev metapodatkov, spremembo CRF ali pa bitne hitrosti.
 
+![alt text](https://files.catbox.moe/pqvqav.jpg)
+
+
 ## Uporaba
 ```bash
 docker build -t videoprocessor .
