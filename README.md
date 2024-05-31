@@ -13,7 +13,7 @@ docker run -d -p 5000:5000 videoprocessor
 
 Do vmesnika se dostopa na 127.0.0.1:5000 (localhost).
 
-## Endpoints
+## API Klici
 
 1. **Upload Video**
    - **URL:** `/upload`
