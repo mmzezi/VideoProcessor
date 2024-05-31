@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 import os
 import subprocess
 import time
+import shutil
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
@@ -33,7 +34,7 @@ def change_resolution(input_path, output_path, resolution):
     subprocess.run(command, check=True)
 
 def boost_audio(input_path, output_path, volume):
-    command = ['ffmpeg', '-i', input_path, '-filter:a', f'volume={volume}', output_path]
+    command = ['ffmpeg', '-i', input_path, '-filter:a', f'volume={volume}dB', output_path]
     subprocess.run(command, check=True)
 
 @app.route('/')
@@ -61,42 +62,47 @@ def process_video(video_id):
     if not video:
         return jsonify({'error': 'Video not found'}), 404
     input_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
-    output_filename = generate_unique_filename(video.filename, "processed")
-    output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
-    codec = request.json.get('codec', 'libx265')
-    convert_video(input_path, output_path, codec)
-    video.processed_filename = output_filename
-    db.session.commit()
-    return jsonify({'processed_filename': output_filename}), 200
 
-@app.route('/lower_resolution/<int:video_id>', methods=['POST'])
-def lower_resolution(video_id):
-    video = Video.query.get(video_id)
-    if not video:
-        return jsonify({'error': 'Video not found'}), 404
-    input_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
-    output_filename = generate_unique_filename(video.filename, "lowres")
-    output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
-    resolution = request.json.get('resolution', '-2:480')  # -2:480 za ohranitev aspect
-    change_resolution(input_path, output_path, resolution)
-    video.processed_filename = output_filename
-    db.session.commit()
-    return jsonify({'processed_filename': output_filename}), 200
+    # Generate unique filenames for temporary, processed, and final processed videos
+    temp_filename = generate_unique_filename(video.filename, "temp")
+    temp_path = os.path.join(app.config['PROCESSED_FOLDER'], temp_filename)
+    processed_filename = generate_unique_filename(video.filename, "processed")
+    processed_path = os.path.join(app.config['PROCESSED_FOLDER'], processed_filename)
+    final_processed_filename = generate_unique_filename(video.filename, "final_processed")
+    final_processed_path = os.path.join(app.config['PROCESSED_FOLDER'], final_processed_filename)
 
+    data = request.json
+    codec = data.get('codec', 'libx265')
+    resolution = data.get('resolution', '-2:480')
+    volume = data.get('volume', '5')
+    bitrate = data.get('bitrate', '1000')
+    crf = data.get('crf', '28')  # Default CRF value
+    strip_metadata = data.get('strip_metadata', False)
 
-@app.route('/boost_audio/<int:video_id>', methods=['POST'])
-def boost_audio_endpoint(video_id):
-    video = Video.query.get(video_id)
-    if not video:
-        return jsonify({'error': 'Video not found'}), 404
-    input_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
-    output_filename = generate_unique_filename(video.filename, "boosted")
-    output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
-    volume = request.json.get('volume', '5.0')  # 5x volume
-    boost_audio(input_path, output_path, volume)
-    video.processed_filename = output_filename
+    # Temporary processing step to avoid in-place editing
+    change_resolution(input_path, temp_path, resolution)
+    convert_video(temp_path, processed_path, codec)
+
+    # Apply audio boost to the processed video
+    boost_audio(processed_path, final_processed_path, volume)
+
+    # Generate a new unique filename for the final encoded video
+    final_encoded_filename = generate_unique_filename(video.filename, "final_encoded")
+    final_encoded_path = os.path.join(app.config['PROCESSED_FOLDER'], final_encoded_filename)
+
+    # Encode the processed video to the selected bitrate and apply CRF
+    command = ['ffmpeg', '-i', final_processed_path, '-c:v', codec, '-b:v', f'{bitrate}k', '-crf', crf, final_encoded_path]
+
+    # Optionally strip metadata
+    if strip_metadata:
+        command.extend(['-map_metadata', '-1'])
+
+    subprocess.run(command, check=True)
+
+    video.processed_filename = final_encoded_filename
     db.session.commit()
-    return jsonify({'processed_filename': output_filename}), 200
+    return jsonify({'processed_filename': final_encoded_filename}), 200
+
 
 @app.route('/download/<int:video_id>', methods=['GET'])
 def download_file(video_id):
@@ -104,7 +110,11 @@ def download_file(video_id):
     if not video or not video.processed_filename:
         return jsonify({'error': 'Processed video not found'}), 404
     filepath = os.path.join(app.config['PROCESSED_FOLDER'], video.processed_filename)
-    return send_file(filepath, as_attachment=True)
+    response = send_file(filepath, as_attachment=True)
+    # Delete upload and processed folders after download
+    shutil.rmtree(app.config['UPLOAD_FOLDER'], ignore_errors=True)
+    shutil.rmtree(app.config['PROCESSED_FOLDER'], ignore_errors=True)
+    return response
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
